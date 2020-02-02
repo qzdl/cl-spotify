@@ -19,4 +19,5 @@
   (:use #:cl #:j-utils #:alexandria #:st-json #:local-time)
   (:export #:authorize
            #:ensure-authorized
-           #:get-user-info))
+           #:get-user-info
+           #:get-with-token))

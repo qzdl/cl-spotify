@@ -17,7 +17,9 @@
 
 (in-package :cl-spotify)
 
-(defparameter *client-file* (asdf:system-relative-pathname :cl-spotify ".spotify-client"))
+(defparameter *client-file* (asdf:system-relative-pathname
+                             :cl-spotify ".spotify-client"))
+
 (defparameter *client-secret* nil)
 (defparameter *client-id* nil)
 
@@ -25,11 +27,16 @@
 (defparameter *auth-state* nil)
 (defparameter *auth-redirect-url* "http://localhost:4040/")
 
-(defparameter *auth-file* (asdf:system-relative-pathname :cl-spotify ".spotify-auth"))
+(defparameter *auth-file* (asdf:system-relative-pathname
+                           :cl-spotify ".spotify-auth"))
+
+(defparameter *close-html-file* (asdf:system-relative-pathname
+                                 :cl-spotify "close.html"))
 (defparameter *auth-code* nil)
 (defparameter *auth-json* nil)
 
-(defparameter *accepted-page-html* "<html><head><title>Authorized!</title></head><body onload=\"closeCurrentWindow()\"><p>You have been authorized with Spotify.</p><p><a href=\"javascript:closeCurrentWindow()\">Please close this window</a></p></body><script>function closeCurrentWindow() { window.close(); }</script></html>")
+(defparameter *close-html*
+  (alexandria:read-file-into-string *close-html-file*))
 
 (defun auth-request-header ()
   (cons
@@ -83,7 +90,7 @@
     (with-output-to-file (outs *auth-file*)
       (format outs "~a" json-token))
     (setf *auth-json* json-token)
-    *accepted-page-html*))
+    *close-html*))
 
 (defun authorize ()
   (when (not (uiop:file-exists-p *client-file*))
@@ -136,8 +143,8 @@
              (setf *auth-json* json-token)))
           (t
            auth))))
-(
-ddefun ensure-authorized ()
+
+(defun ensure-authorized ()
   (cond
     ;; Auth object exists, so just check for expiration and continue
     (*auth-json*
@@ -169,12 +176,16 @@ ddefun ensure-authorized ()
     (t
      (error "Unusual authorization state!"))))
 
-(defun get-user-info ()
+(defun get-with-token (url)
   (ensure-authorized)
-  (format t "~a~%" (auth-header))
   (st-json:read-json-from-string
    (flexi-streams:octets-to-string
-    (drakma:http-request "https://api.spotify.com/v1/me"
+    (drakma:http-request url
                          :external-format-in  :utf-8
                          :additional-headers (list (auth-header))
                          :method :get))))
+
+(defun get-user-info ()
+  (get-with-token "https://api.spotify.com/v1/me"))
+
+
