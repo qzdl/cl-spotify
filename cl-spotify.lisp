@@ -130,7 +130,7 @@
                                        (- (getjso "expires_in" json-token) 5)
                                        :sec)))
              (format t "~a~%" json-token)
-             (with-output-to-file (outs *auth-file*)
+             (with-output-to-file (outs *auth-file* :if-exists :supersede)
                (format outs "~a" json-token))
              (setf *auth-json* json-token)))
           (t
