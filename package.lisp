@@ -17,7 +17,9 @@
 
 (defpackage :cl-spotify
   (:use #:cl #:j-utils #:alexandria #:st-json #:local-time)
-  (:export #:authorize
-           #:ensure-authorized
+  (:export #:connect
+           #:disconnect
+           #:spotify-connection
+
            #:get-user-info
            #:get-with-token))

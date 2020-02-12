@@ -18,23 +18,25 @@
 (in-package :cl-spotify)
 
 (defparameter *client-file* (asdf:system-relative-pathname
-                             :cl-spotify ".spotify-client"))
+                             :cl-spotify ".spotify-client")
+  "Path to a JSON file containing an object with client_id and client_secret entries.")
 
 (defparameter *auth-file* (asdf:system-relative-pathname
                            :cl-spotify ".spotify-auth"))
 
 (defparameter *close-html* (asdf:system-relative-pathname
-                            :cl-spotify "close.html"))
+                            :cl-spotify "close.html")
+  "Path to the HTML file that the user is redirected to after authenticating.")
 
-(defparameter *auth-server* nil)
-(defparameter *auth-state* nil)
-(defparameter *auth-redirect-url* "http://localhost:4040/")
+(defparameter *print-http-results* t)
 
-(defparameter *auth-code* nil)
-(defparameter *auth-json* nil)
+;; (defparameter *auth-code* nil)
+;; (defparameter *auth-json* nil)
 
+(defparameter *initializing-connection* nil)
 
 (defun auth-request-header ()
+  "Read client ID and secret from .spotify-client and return an authorization header."
   (with-input-from-file (ins *client-file*)
     (let ((json (read-json ins)))
       (cons
@@ -48,145 +50,292 @@
                  (getjso "client_secret" json))))))))
 
 (defun get-client-id ()
+  "Return the client_id from .spotify-client."
   (with-input-from-file (ins *client-file*)
     (let ((json (read-json ins)))
       (getjso "client_id" json))))
 
-(hunchentoot:define-easy-handler (register :uri "/") (code state)
-  (when (not (string= *auth-state* state))
-    (error "State is not equal!"))
+(defclass spotify-connection ()
+  ((auth-state :initarg :auth-state :initform (format nil "~a" (random 10000000000)) :accessor auth-state)
+   (listen-port :initarg :listen-port :initform 4040 :accessor listen-port)
+   (redirect-url :initarg :redirect-url :accessor redirect-url)
+   (scope :initarg :scope :initform "" :accessor scope)
+   (auth-server :initform nil :accessor auth-server)
+   (stream :initform nil)
+   (cookies :initform (make-instance 'drakma:cookie-jar) :accessor cookies)
+   (expiration :initform nil :accessor expiration)
+   (auth-header :initarg :auth-header :initform nil :type cons :accessor auth-header)
+   (auth-token :initarg :auth-token :initform nil :accessor auth-token))
+  (:documentation "An object created when initializing a spotify connection."))
 
-  (setf (hunchentoot:content-type*) "text/html")
-  (setf *auth-code* code)
-  (format t "Auth code is: ~a~%" *auth-code*)
-
-  (let* ((res (flexi-streams:octets-to-string
-               (drakma:http-request "https://accounts.spotify.com/api/token"
-                                    :external-format-in  :utf-8
-                                    :decode-content  t
-                                    :method :post
-                                    :additional-headers (list (auth-request-header))
-                                    :content (drakma::alist-to-url-encoded-string
-                                              (list (cons "grant_type" "authorization_code")
-                                                    (cons "code" *auth-code*)
-                                                    (cons "redirect_uri" *auth-redirect-url*)
-                                                    )
-                                              :utf-8
-                                              #'drakma:url-encode))))
-         (json-token (read-json-from-string res)))
-
-    (setf (getjso "expire_time" json-token)
-          (format-timestring nil
-                             (timestamp+
-                              (local-time:now)
-                              (- (getjso "expires_in" json-token) 5)
-                              :sec)))
-    (format t "~a~%" json-token)
-    (with-output-to-file (outs *auth-file*)
-      (format outs "~a" json-token))
-    (setf *auth-json* json-token)
-    (alexandria:read-file-into-string *close-html*)))
-
-
-(defun authorize ()
-  (when (not (uiop:file-exists-p *client-file*))
-    (error (format nil "Cannot read client information from ~s" *client-file*)))
-
-  (setf *auth-state* (format nil "~a" (random 10000000000)))
-  (let ((auth-url (format nil
-                          "https://accounts.spotify.com/authorize?~a"
-                          (drakma::alist-to-url-encoded-string
-                           (list (cons "response_type" "code")
-                                 (cons "client_id" (get-client-id))
-                                 (cons "state" *auth-state*)
-                                 (cons "redirect_uri" "http://localhost:4040/"))
-                           :utf-8
-                           #'drakma:url-encode))))
-    (setf *auth-server* (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor :port 4040)))
-    (swank:eval-in-emacs (list 'eww-browse-with-external-browser auth-url))))
-
-(defun check-expiration (auth)
-  (let ((exp-time (parse-timestring (getjso "expire_time" auth)))
-        (ref-token (getjso "refresh_token" auth)))
-
-    (cond ((timestamp< exp-time (local-time:now))
-           (let* ((req-data (drakma::alist-to-url-encoded-string
-                             (list (cons "grant_type" "refresh_token")
-                                   (cons "refresh_token" ref-token))
-                             :utf-8
-                             #'drakma:url-encode))
-                  (res (flexi-streams:octets-to-string
-                        (drakma:http-request "https://accounts.spotify.com/api/token"
-                                             :external-format-in  :utf-8
-                                             :additional-headers (list (auth-request-header))
-                                             :decode-content  t
-                                             :method :post
-                                             :content req-data)))
-                  (json-token (read-json-from-string res)))
-             (setf (getjso "expire_time" json-token)
-                   (format-timestring nil
-                                      (timestamp+
-                                       (local-time:now)
-                                       (- (getjso "expires_in" json-token) 5)
-                                       :sec)))
-             (format t "~a~%" json-token)
-             (with-output-to-file (outs *auth-file* :if-exists :supersede)
-               (format outs "~a" json-token))
-             (setf *auth-json* json-token)))
-          (t
-           auth))))
-
-(defun ensure-authorized ()
-  (cond
-    ;; Auth object exists, so just check for expiration and continue
-    (*auth-json*
-     (setf *auth-json* (check-expiration *auth-json*))
-     *auth-json*)
-
-    ;; No authorization file or JSON object
-    ;; Not authorized yet, request authorization
-    ((and (null *auth-json*)
-          (not (uiop:file-exists-p *auth-file*)))
-     (authorize))
-
-    ;; Authorization file exists, but no object
-    ;; Possibly this is the first call after a Lisp restart or right after authorizing
-    ;; Load auth file and check for expiration
-    ((and (null *auth-json*)
-          (uiop:file-exists-p *auth-file*))
-     ;; If authorization just finished the server listening for redirects may still
-     ;; be around, so stop it
-     (when *auth-server*
-       (hunchentoot:stop *auth-server*)
-       (setf *auth-server* nil))
-
-     ;; Read authorization file and check for expiration
-     (with-input-from-file (ins *auth-file*)
-       (setf *auth-json* (check-expiration (read-json ins))))
-     *auth-json*)
-
-    (t
-     (error "Unusual authorization state!"))))
-
-(defun auth-header ()
+(defun create-auth-header (json-token)
   (cons
    "Authorization"
    (format
     nil
     "~a ~a"
-    (getjso "token_type" *auth-json*)
-    (getjso "access_token" *auth-json*))))
+    (getjso "token_type" json-token)
+    (getjso "access_token" json-token))))
 
-(defun get-with-token (url)
-  (ensure-authorized)
-  (st-json:read-json-from-string
-   (flexi-streams:octets-to-string
-    (drakma:http-request url
-                         :external-format-in  :utf-8
-                         :additional-headers (list (auth-header))
-                         :method :get))))
+(defun connect (&key (scope "") (port 4040))
+  (cond ((not (uiop:file-exists-p *client-file*))
+         (error (format nil "Cannot read client information from ~s" *client-file*)))
+        ((uiop:file-exists-p *auth-file*)
+         (let ((atoken (read-auth-token)))
+           (refresh-connection (make-instance 'spotify-connection
+                                              :scope scope
+                                              :listen-port port
+                                              :redirect-url (format nil "http://localhost:~a/" port)
+                                              :auth-token atoken
+                                              :auth-header (cons
+                                                            "Authorization"
+                                                            (format nil
+                                                                    "~a ~a"
+                                                                    (getjso "token_type" atoken)
+                                                                    (getjso "access_token" atoken)))))))
+        (t
+         (let* ((spotify-conn (make-instance 'spotify-connection
+                                             :scope scope
+                                             :listen-port port
+                                             :redirect-url (format nil "http://localhost:~a/" port)))
 
-(defun get-user-info ()
-  (get-with-token "https://api.spotify.com/v1/me"))
+                (header-list (list (cons "response_type" "code")
+                                   (cons "client_id" (get-client-id))
+                                   (cons "scope" (scope spotify-conn))
+                                   (cons "state" (auth-state spotify-conn))
+                                   (cons "redirect_uri" (redirect-url spotify-conn))))
+
+                (auth-url (format nil "https://accounts.spotify.com/authorize?~a"
+                                  (drakma::alist-to-url-encoded-string header-list
+                                                                       :utf-8
+                                                                       #'drakma:url-encode))))
+
+           (setf *initializing-connection* spotify-conn)
+           (setf (auth-server spotify-conn)
+                 (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor :port (listen-port spotify-conn))))
+
+           (swank:eval-in-emacs (list 'eww-browse-with-external-browser auth-url))
+           spotify-conn))))
+
+(define-condition authentication-error (error)
+  ((error :initarg :error :reader auth-error)
+   (error-description :initarg :description :reader description)))
+
+(define-condition regular-error (error)
+  ((status :initarg :status :reader status)
+   (message :initarg :message :reader message)))
+
+(define-condition http-error (error)
+  ((code :initarg :code :reader code)
+   (headers :initarg :headers :reader headers)
+   (url :initarg :url :reader url)
+   (message :initarg :message :reader message)))
 
 
+(defun save-auth-token (json-token)
+  (with-output-to-file (outs *auth-file* :if-exists :supersede)
+    (format outs "~a" json-token))
+  json-token)
+
+(defun read-auth-token ()
+  (with-input-from-file (ins *auth-file*)
+    (st-json:read-json ins)))
+
+(defun get-auth-token (code connection)
+  (with-slots (redirect-url) connection
+    (let ((content (drakma::alist-to-url-encoded-string
+                    (list (cons "grant_type" "authorization_code")
+                          (cons "code" code)
+                          (cons "redirect_uri" redirect-url))
+                    :utf-8
+                    #'drakma:url-encode)))
+      (spotify-get-json connection
+                        "https://accounts.spotify.com/api/token"
+                        :type :post
+                        :extra-headers (list (auth-request-header))
+                        :content content
+                        :in-init t))))
+
+(hunchentoot:define-easy-handler (authorize :uri "/") (code state)
+
+  (with-slots (redirect-url auth-state auth-token auth-header) *initializing-connection*
+
+    (when (not (string= auth-state state))
+      (error "State does not match!"))
+
+    (setf (hunchentoot:content-type*) "text/html")
+    (format t "Auth code is: ~a~%" code)
+    (let ((json-token (get-auth-token code *initializing-connection*)))
+    ;; Convert relative expires_in into absolute expire_time and store it in the JSON object
+
+      (setf (getjso "expire_time" json-token)
+            (format-timestring nil
+                               (timestamp+
+                                (local-time:now)
+                                (- (getjso "expires_in" json-token) 5)
+                                :sec)))
+      (format t "json-token is: ~a~%" json-token)
+      (save-auth-token json-token)
+      (setf auth-token json-token)
+      (setf auth-header (create-auth-header json-token)))
+
+      ;; Return HTML telling the user they are authorized and can close the browser window.
+      (alexandria:read-file-into-string *close-html*)))
+
+
+
+(defun http-error-lookup (code)
+  (assoc-value
+   '((200 . "The request has succeeded. The client can read the result of \
+the request in the body and the headers of the response.")
+
+    (201 . "Created - The request has been fulfilled and resulted in a \
+new resource being created.")
+
+    (202 . "Accepted - The request has been accepted for processing, but \
+the processing has not been completed.")
+
+    (204 . "No Content - The request has succeeded but returns no message \
+body.")
+
+    (304 . "Not Modified. See Conditional requests.")
+
+    (400 . "Bad Request - The request could not be understood by the server \
+due to malformed syntax. The message body will contain more information;
+see Response Schema.")
+
+    (401 . "Unauthorized - The request requires user authentication or, if \
+the request included authorization credentials, authorization has been \
+refused for those credentials.")
+
+    (403 . "Forbidden - The server understood the request, but is refusing \
+to fulfill it.")
+
+    (404 . "Not Found - The requested resource could not be found. This error \
+can be due to a temporary or permanent condition.")
+
+    (429 . "Too Many Requests - Rate limiting has been applied.")
+
+    (500 . "Internal Server Error. You should never receive this error \
+because our clever coders catch them all … but if you are unlucky enough \
+to get one, please report it to us through a comment at the bottom of this \
+page.")
+
+    (502 . "Bad Gateway - The server was acting as a gateway or proxy and \
+received an invalid response from the upstream server.")
+
+    (503 . "Service Unavailable - The server is currently unable to handle \
+the request due to a temporary condition which will be alleviated after some \
+delay. You can choose to resend the request again."))
+
+   code))
+
+(defun check-error (json-response)
+  (cond
+    ((getjso "status" json-response)
+     (error 'regular-error
+            :status (getjso "status" json-response)
+            :message (getjso "message" json-response)))
+    ((getjso "error" json-response)
+         (error 'authentication-error
+                :error (getjso "error" json-response)
+                :description (getjso "error_description" json-response)))
+    (t
+     json-response)))
+
+(defun check-cleanup (spotify-connection)
+  (with-slots (auth-server stream) spotify-connection
+    (when auth-server
+      (hunchentoot:stop auth-server)
+      (setf auth-server nil)
+      (close stream)
+      (setf stream nil))))
+
+(defun spotify-get-json (connection url &key extra-headers keep-alive (type :get) (content nil) (in-init nil))
+  (format t "Getting: ~a~%" url)
+
+  (when (null in-init)
+    (check-cleanup connection)
+    (refresh-connection connection))
+
+  (with-slots (auth-header stream cookies retries) connection
+    (handler-case
+        (multiple-value-bind (body resp-code headers url req-stream must-close response)
+            (drakma:http-request
+             url
+             :method type
+             :keep-alive keep-alive
+             :close nil
+             :accept "application/json"
+             :additional-headers (concatenate 'list (list auth-header) (ensure-list extra-headers))
+             :user-agent "cl-spotify"
+             :want-stream nil
+             :content content
+             :stream stream
+             :cookie-jar cookies)
+          (declare (ignorable body))
+          (when *print-http-results*
+            (format *print-http-results*
+                    "Headers:~%~a~%Response Code: ~a~%Response: ~a~%URL: ~a~%~%"
+                    headers resp-code response url))
+          (unwind-protect
+               (cond ((= resp-code 200)
+                      (setf stream req-stream)
+                      (let ((json-response (read-json-from-string (flexi-streams:octets-to-string body :external-format :utf-8))))
+                        (check-error json-response)
+                        json-response))
+                     (t
+                      (error 'http-error
+                             :code resp-code
+                             :headers headers
+                             :url url
+                             :message (http-error-lookup resp-code))))
+            (when must-close
+              (close req-stream)
+              (setf stream nil)))))))
+
+(defun expired-p (connection)
+  (with-slots (auth-token) connection
+    (let ((exp-time (parse-timestring (getjso "expire_time" auth-token))))
+      (timestamp< exp-time (local-time:now)))))
+
+(defun refresh-connection (connection)
+  (with-slots (auth-token auth-header) connection
+    (let ((exp-time (parse-timestring (getjso "expire_time" auth-token)))
+          (ref-token (getjso "refresh_token" auth-token)))
+
+      (when (timestamp< exp-time (local-time:now))
+        (let* ((req-data (drakma::alist-to-url-encoded-string
+                          (list (cons "grant_type" "refresh_token")
+                                (cons "refresh_token" ref-token))
+                          :utf-8
+                          #'drakma:url-encode))
+               (res (flexi-streams:octets-to-string
+                     (drakma:http-request "https://accounts.spotify.com/api/token"
+                                          :external-format-in  :utf-8
+                                          :additional-headers (list (auth-request-header))
+                                          :decode-content  t
+                                          :method :post
+                                          :content req-data)))
+               (json-token (read-json-from-string res)))
+          (setf (getjso "expire_time" json-token)
+                (format-timestring nil
+                                   (timestamp+
+                                    (local-time:now)
+                                    (- (getjso "expires_in" json-token) 5)
+                                    :sec)))
+          (format t "~a~%" json-token)
+          (save-auth-token json-token)
+          (setf auth-token json-token)
+          (setf auth-header (create-auth-header json-token))))))
+  connection)
+
+(defun disconnect (connection)
+  (with-slots (auth-server stream) connection
+    (when auth-server
+      (hunchentoot:stop auth-server))
+    (when stream
+      (close  stream))))
+
+(defun get-user-info (spotify)
+  (spotify-get-json spotify "https://api.spotify.com/v1/me"))
