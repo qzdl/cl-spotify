@@ -22,4 +22,5 @@
            #:spotify-connection
 
            #:get-user-info
+           #:spotify-get-json
            #:get-with-token))

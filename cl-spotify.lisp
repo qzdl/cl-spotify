@@ -287,47 +287,58 @@ delay. You can choose to resend the request again."))
   (when (null in-init)
     (check-cleanup connection)
     (refresh-connection connection))
-
-  (with-slots (auth-header stream cookies retries) connection
-    (handler-case
-        (multiple-value-bind (body resp-code headers url req-stream must-close response)
-            (drakma:http-request
-             url
-             :method type
-             :keep-alive keep-alive
-             :close nil
-             :accept "application/json"
-             :additional-headers (concatenate 'list (list auth-header) (ensure-list extra-headers))
-             :user-agent "cl-spotify"
-             :want-stream nil
-             :content content
-             :stream stream
-             :cookie-jar cookies)
-          (declare (ignorable body))
-          (when *print-http-results*
-            (format *print-http-results*
-                    "Headers:~%~a~%Response Code: ~a~%Response: ~a~%URL: ~a~%~%"
-                    headers resp-code response url))
-          (unwind-protect
-               (cond ((= resp-code 200)
-                      (setf stream req-stream)
-                      (let ((json-response (read-json-from-string (flexi-streams:octets-to-string body :external-format :utf-8))))
-                        (check-error json-response)
-                        json-response))
-                     (t
-                      (error 'http-error
-                             :code resp-code
-                             :headers headers
-                             :url url
-                             :message (http-error-lookup resp-code))))
-            (when must-close
-              (close req-stream)
-              (setf stream nil)))))))
+  (loop
+     for attempts below 3
+     do
+       (with-slots (auth-header stream cookies retries) connection
+         (handler-case
+             (multiple-value-bind (body resp-code headers url req-stream must-close response)
+                 (drakma:http-request
+                  url
+                  :method type
+                  :keep-alive keep-alive
+                  :close nil
+                  :accept "application/json"
+                  :additional-headers (concatenate 'list (list auth-header) (ensure-list extra-headers))
+                  :user-agent "cl-spotify"
+                  :want-stream nil
+                  :content content
+                  :stream stream
+                  :cookie-jar cookies)
+               (declare (ignorable body))
+               (when *print-http-results*
+                 (format *print-http-results*
+                         "Headers:~%~a~%Response Code: ~a~%Response: ~a~%URL: ~a~%~%"
+                         headers resp-code response url))
+               (unwind-protect
+                    (cond ((= resp-code 200)
+                           (setf stream req-stream)
+                           (let ((json-response (read-json-from-string (flexi-streams:octets-to-string body :external-format :utf-8))))
+                             (check-error json-response)
+                             (return-from spotify-get-json json-response)))
+                          (t
+                           (error 'http-error
+                                  :code resp-code
+                                  :headers headers
+                                  :url url
+                                  :message (http-error-lookup resp-code))))
+                 (when must-close
+                   (close req-stream)
+                   (setf stream nil))))
+           (drakma:drakma-error (err)
+             (declare (ignorable err))
+             (format t "Keep alive expired!~%")
+             (reset-connection connection))))))
 
 (defun expired-p (connection)
   (with-slots (auth-token) connection
     (let ((exp-time (parse-timestring (getjso "expire_time" auth-token))))
       (timestamp< exp-time (local-time:now)))))
+
+(defun reset-connection (connection)
+  (with-slots (stream) connection
+    (close stream)
+    (setf stream nil)))
 
 (defun refresh-connection (connection)
   (with-slots (auth-token auth-header) connection
@@ -335,11 +346,13 @@ delay. You can choose to resend the request again."))
           (ref-token (getjso "refresh_token" auth-token)))
 
       (when (timestamp< exp-time (local-time:now))
+        (reset-connection connection)
         (let* ((req-data (drakma::alist-to-url-encoded-string
                           (list (cons "grant_type" "refresh_token")
                                 (cons "refresh_token" ref-token))
                           :utf-8
                           #'drakma:url-encode))
+               (my-nil (format t "req-data: ~a~%" req-data))
                (res (flexi-streams:octets-to-string
                      (drakma:http-request "https://accounts.spotify.com/api/token"
                                           :external-format-in  :utf-8
@@ -348,14 +361,21 @@ delay. You can choose to resend the request again."))
                                           :method :post
                                           :content req-data)))
                (json-token (read-json-from-string res)))
+          (declare (ignorable my-nil))
+          (when (getjso "refresh_token" json-token)
+            (setf (getjso "refresh_token" auth-token)
+                  (getjso "refresh_token" json-token)))
+          (format t "Refresh token: ~a~%" json-token)
           (setf (getjso "expire_time" json-token)
                 (format-timestring nil
                                    (timestamp+
                                     (local-time:now)
                                     (- (getjso "expires_in" json-token) 5)
                                     :sec)))
+          (format t "json-token: ~a~%" json-token)
+          (format t "auth-token: ~a~%" auth-token)
           (save-auth-token json-token)
-          (setf auth-token json-token)
+          ;; (setf auth-token json-token)
           (setf auth-header (create-auth-header json-token))))))
   connection)
 
