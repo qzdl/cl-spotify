@@ -30,11 +30,11 @@
 
 ;; HTML shown to the user after authentication.
 (defparameter *close-html* (asdf:system-relative-pathname
-                            :cl-spotify "close.html")
+                            :cl-spotify "html/close.html")
   "Path to the HTML file that the user is redirected to after authenticating.")
 
 
-(defparameter *print-http-results* nil
+(defparameter *debug-print-stream* nil
   "Debug setting to print low level HTTP results.")
 
 (defparameter *initializing-connection* nil
@@ -137,6 +137,7 @@ access is granted and Spotify redirects the user to our local server.")
 
            ;; Open the URL authentication URL in the user's browser.
            ;; TODO: Don't use Swank...
+           (swank:eval-in-emacs '(require 'eww))
            (swank:eval-in-emacs (list 'eww-browse-with-external-browser auth-url))
 
            ;; Return the new connection
@@ -306,8 +307,8 @@ delay. You can choose to resend the request again."))
                   :stream stream
                   :cookie-jar cookies)
                (declare (ignorable body))
-               (when *print-http-results*
-                 (format *print-http-results*
+               (when *debug-print-stream*
+                 (format *debug-print-stream*
                          "Headers:~%~a~%Response Code: ~a~%Response: ~a~%URL: ~a~%~%"
                          headers resp-code response url))
                (unwind-protect
@@ -337,8 +338,9 @@ delay. You can choose to resend the request again."))
 
 (defun reset-connection (connection)
   (with-slots (stream) connection
-    (close stream)
-    (setf stream nil)))
+    (when stream
+      (close stream)
+      (setf stream nil))))
 
 (defun refresh-connection (connection)
   (with-slots (auth-token auth-header) connection
@@ -352,7 +354,8 @@ delay. You can choose to resend the request again."))
                                 (cons "refresh_token" ref-token))
                           :utf-8
                           #'drakma:url-encode))
-               (my-nil (format t "req-data: ~a~%" req-data))
+               (my-nil (when *debug-print-stream*
+                         (format *debug-print-stream* "req-data: ~a~%" req-data)))
                (res (flexi-streams:octets-to-string
                      (drakma:http-request "https://accounts.spotify.com/api/token"
                                           :external-format-in  :utf-8
@@ -365,15 +368,17 @@ delay. You can choose to resend the request again."))
           (when (getjso "refresh_token" json-token)
             (setf (getjso "refresh_token" auth-token)
                   (getjso "refresh_token" json-token)))
-          (format t "Refresh token: ~a~%" json-token)
+          (when *debug-print-stream*
+            (format *debug-print-stream* "Refresh token: ~a~%" json-token))
           (setf (getjso "expire_time" json-token)
                 (format-timestring nil
                                    (timestamp+
                                     (local-time:now)
                                     (- (getjso "expires_in" json-token) 5)
                                     :sec)))
-          (format t "json-token: ~a~%" json-token)
-          (format t "auth-token: ~a~%" auth-token)
+          (when *debug-print-stream*
+            (format *debug-print-stream* "json-token: ~a~%" json-token)
+            (format *debug-print-stream* "auth-token: ~a~%" auth-token))
           (save-auth-token json-token)
           ;; (setf auth-token json-token)
           (setf auth-header (create-auth-header json-token))))))
