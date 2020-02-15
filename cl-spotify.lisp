@@ -71,7 +71,8 @@ access is granted and Spotify redirects the user to our local server.")
    (cookies :initform (make-instance 'drakma:cookie-jar) :accessor cookies)
    (expiration :initform nil :accessor expiration)
    (auth-header :initarg :auth-header :initform nil :type cons :accessor auth-header)
-   (auth-token :initarg :auth-token :initform nil :accessor auth-token))
+   (auth-token :initarg :auth-token :initform nil :accessor auth-token)
+   (user-info :initform nil))
   (:documentation "A connection to the Spotify API."))
 
 (defun create-auth-header (json-token)
@@ -215,7 +216,8 @@ finishes initialization of *initializing-connection*."
     (setf (hunchentoot:content-type*) "text/html")
     (alexandria:read-file-into-string *close-html*)))
 
-
+(defun user-id (connection)
+  (getjso "id" (user-info connection)))
 
 (defun http-error-lookup (code)
   (assoc-value
@@ -391,5 +393,25 @@ delay. You can choose to resend the request again."))
     (when stream
       (close  stream))))
 
-(defun get-user-info (spotify)
-  (spotify-get-json spotify "https://api.spotify.com/v1/me"))
+(defun user-info (connection)
+  (with-slots (user-info) connection
+    (when (null user-info)
+      (setf user-info (spotify-get-json connection "https://api.spotify.com/v1/me")))
+    user-info))
+
+(defun get-playlists (connection)
+  (spotify-get-json
+   connection
+   (format nil "https://api.spotify.com/v1/users/~a/playlists" (user-id connection))))
+
+
+(defun go-backward (connection iterator)
+  (when-let (previous (getjso "previous" iterator))
+    (spotify-get-json connection previous)))
+
+(defun go-forward (connection iterator)
+  (when-let (forward (getjso "next" iterator))
+    (spotify-get-json connection forward)))
+
+(defun items (iterator)
+  (getjso "items" iterator))

@@ -23,4 +23,11 @@
 
            #:get-user-info
            #:spotify-get-json
-           #:get-with-token))
+           #:get-with-token
+           #:user-id
+           #:user-info
+           #:get-playlists
+           #:go-forward
+           #:go-backward
+           #:items
+           ))
