@@ -330,7 +330,8 @@ delay. You can choose to resend the request again."))
                    (setf stream nil))))
            (drakma:drakma-error (err)
              (declare (ignorable err))
-             (format t "Keep alive expired!~%")
+             (when *debug-print-stream*
+               (format *debug-print-stream* "Keep alive expired!~%"))
              (reset-connection connection))))))
 
 (defun expired-p (connection)
@@ -381,7 +382,7 @@ delay. You can choose to resend the request again."))
           (when *debug-print-stream*
             (format *debug-print-stream* "json-token: ~a~%" json-token)
             (format *debug-print-stream* "auth-token: ~a~%" auth-token))
-          (save-auth-token json-token)
+          (save-auth-token auth-token)
           ;; (setf auth-token json-token)
           (setf auth-header (create-auth-header json-token))))))
   connection)
