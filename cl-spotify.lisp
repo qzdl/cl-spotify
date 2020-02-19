@@ -28,7 +28,7 @@
 (defparameter *auth-file* (asdf:system-relative-pathname :cl-spotify ".spotify-auth")
   "Path to the auth token cache file.")
 
-;; HTML shown to the user after authentication.
+;; HTML shown to the user after authorization.
 (defparameter *close-html* (asdf:system-relative-pathname
                             :cl-spotify "html/close.html")
   "Path to the HTML file that the user is redirected to after authenticating.")
@@ -38,7 +38,7 @@
   "Debug setting to print low level HTTP results.")
 
 (defparameter *initializing-connection* nil
-  "The spotify-connection that initiated authentication.  This object will be updated after \
+  "The spotify-connection that initiated authorization.  This object will be updated after \
 access is granted and Spotify redirects the user to our local server.")
 
 (defun auth-request-header ()
@@ -75,17 +75,17 @@ access is granted and Spotify redirects the user to our local server.")
    (user-info :initform nil))
   (:documentation "A connection to the Spotify API."))
 
-(defun create-auth-header (json-token)
-  "Create an HTTP authentication header from a JSON authentication token."
+(defun create-auth-header (auth-token)
+  "Create an HTTP authorization header from a JSON authorization token."
   (cons "Authorization"
         (format
          nil
          "~a ~a"
-         (getjso "token_type" json-token)
-         (getjso "access_token" json-token))))
+         (getjso "token_type" auth-token)
+         (getjso "access_token" auth-token))))
 
 (defun get-auth-url (connection)
-  ;; Headers required to initiate authentication.
+  ;; Headers required to initiate authorization.
   ;; See this page:
   ;; https://developer.spotify.com/documentation/general/guides/authorization-guide/
   ;; for more information
@@ -115,7 +115,7 @@ access is granted and Spotify redirects the user to our local server.")
     (setf (auth-server connection)
           (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor :port (listen-port connection))))
 
-    ;; Open the URL authentication URL in the user's browser.
+    ;; Open the URL authorization URL in the user's browser.
     ;; TODO: Don't use Swank...
     (swank:eval-in-emacs '(require 'eww))
     (swank:eval-in-emacs (list 'eww-browse-with-external-browser (get-auth-url connection)))
@@ -123,30 +123,28 @@ access is granted and Spotify redirects the user to our local server.")
     ;; Return the new connection
     connection))
 
-(defun connect (&key (scope nil) (port 4040) (use-cached-auth t))
-  "Create an authenticated Spotify connection.  Initiate authentication, if necessary."
 
-  (cond ((not (uiop:file-exists-p *client-file*))
-         ;; Can't find client identification file
+
+(defun connect (&key (scope nil) (port 4040) (use-cached-auth t))
+  "Create an authenticated Spotify connection.  Initiate authorization, if necessary."
+
+  (cond (;; Can't find client identification file
+         (not (uiop:file-exists-p *client-file*))
          (error (format nil "Cannot read client information from ~s" *client-file*)))
 
+        ;; Already authenticated, so create a connection using the cached token
         ((and use-cached-auth (uiop:file-exists-p *auth-file*))
-         ;; Already authenticated, so a connection using the cached token
-         (let ((atoken (read-auth-token)))
-           (refresh-connection (make-instance 'spotify-connection
-                                              :scope (ensure-list scope)
-                                              :listen-port port
-                                              :redirect-url (format nil "http://localhost:~a/" port)
-                                              :auth-token atoken
-                                              :auth-header (cons
-                                                            "Authorization"
-                                                            (format nil
-                                                                    "~a ~a"
-                                                                    (getjso "token_type" atoken)
-                                                                    (getjso "access_token" atoken)))))))
+         (let ((auth-token (read-auth-token)))
+           (refresh-connection
+            (make-instance 'spotify-connection
+                           :scope (ensure-list scope)
+                           :listen-port port
+                           :redirect-url (format nil "http://localhost:~a/" port)
+                           :auth-token auth-token
+                           :auth-header (create-auth-header auth-token)))))
 
+        ;; No cached token, so initiate authorization
         (t
-         ;; No cached token, so initiate authentication
          (init-new-connection scope port))))
 
 (defun has-scope-p (connection scope)
@@ -165,7 +163,7 @@ access is granted and Spotify redirects the user to our local server.")
          ;; Start HTTP listener to respond to callback
          (setf (auth-server connection)
                (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor :port (listen-port connection))))
-         ;; Open the URL authentication URL in the user's browser.
+         ;; Open the URL authorization URL in the user's browser.
          ;; TODO: Don't use Swank...
          (swank:eval-in-emacs '(require 'eww))
          (swank:eval-in-emacs (list 'eww-browse-with-external-browser (get-auth-url connection)))
@@ -182,10 +180,10 @@ access is granted and Spotify redirects the user to our local server.")
          (connect))))
 
 
-(define-condition authentication-error (error)
+(define-condition authorization-error (error)
   ((error :initarg :error :reader auth-error)
    (error-description :initarg :description :reader description))
-  (:documentation "An authentication error."))
+  (:documentation "An authorization error."))
 
 (define-condition regular-error (error)
   ((status :initarg :status :reader status)
@@ -201,18 +199,18 @@ access is granted and Spotify redirects the user to our local server.")
 
 
 (defun save-auth-token (json-token)
-  "Save json-token to the authentication token cache file."
+  "Save json-token to the authorization token cache file."
   (with-output-to-file (outs *auth-file* :if-exists :supersede)
     (format outs "~a" json-token))
   json-token)
 
 (defun read-auth-token ()
-  "Read a saved authentication token from the cache file."
+  "Read a saved authorization token from the cache file."
   (with-input-from-file (ins *auth-file*)
     (st-json:read-json ins)))
 
 (defun get-auth-token (code connection)
-  "Request an authentication token from Spotify."
+  "Request an authorization token from Spotify."
   (with-slots (redirect-url) connection
     (let ((content (drakma::alist-to-url-encoded-string
                     (list (cons "grant_type" "authorization_code")
@@ -230,7 +228,7 @@ access is granted and Spotify redirects the user to our local server.")
                         :skip-server-clean t))))
 
 (hunchentoot:define-easy-handler (authorize :uri "/") (code state)
-  "Spotify redirects the user here when authentication is granted.  This handler \
+  "Spotify redirects the user here when authorization is granted.  This handler \
 finishes initialization of *initializing-connection*."
 
   (with-slots (redirect-url auth-state auth-token auth-header) *initializing-connection*
@@ -312,7 +310,7 @@ delay. You can choose to resend the request again."))
             :status (getjso "status" json-response)
             :message (getjso "message" json-response)))
     ((getjso "error" json-response)
-         (error 'authentication-error
+         (error 'authorization-error
                 :error (getjso "error" json-response)
                 :description (getjso "error_description" json-response)))
     (t
