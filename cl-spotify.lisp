@@ -113,7 +113,12 @@ access is granted and Spotify redirects the user to our local server.")
 
     ;; Start HTTP listener to respond to callback
     (setf (auth-server connection)
-          (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor :port (listen-port connection))))
+          (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor
+                                            :port (listen-port connection)
+                                            :message-log-destination nil
+                                            :access-log-destination nil
+                                            :persistent-connections-p nil
+                                            :name "Spotify callback handler.")))
 
     ;; Open the URL authorization URL in the user's browser.
     ;; TODO: Don't use Swank...
@@ -183,11 +188,23 @@ access is granted and Spotify redirects the user to our local server.")
 (define-condition authorization-error (error)
   ((error :initarg :error :reader auth-error)
    (error-description :initarg :description :reader description))
+  (:report
+   (lambda (condition stream)
+     (with-slots (error error-description) condition
+     (format stream
+             "Authorization Error~%Error: ~a~%Description: ~a~%"
+             error error-description))))
   (:documentation "An authorization error."))
 
 (define-condition regular-error (error)
   ((status :initarg :status :reader status)
    (message :initarg :message :reader message))
+  (:report
+   (lambda (condition stream)
+     (with-slots (status message) condition
+     (format stream
+             "Spotify Error~%Status: ~a~%Message: ~a~%"
+             status message))))
   (:documentation "Generic Spotify API error."))
 
 (define-condition http-error (error)
@@ -195,6 +212,12 @@ access is granted and Spotify redirects the user to our local server.")
    (headers :initarg :headers :reader headers)
    (url :initarg :url :reader url)
    (message :initarg :message :reader message))
+  (:report
+   (lambda (condition stream)
+     (with-slots (code headers url message) condition
+     (format stream
+             "HTTP Error~%~a~%~a~%~a~%~a~%"
+             code headers url message))))
   (:documentation "An HTTP error."))
 
 
@@ -316,14 +339,15 @@ delay. You can choose to resend the request again."))
     (t
      json-response)))
 
-(defun check-cleanup (connection)
-  (with-slots (auth-server stream) connection
-    (when auth-server
-      (hunchentoot:stop auth-server)
-      (setf auth-server nil))
-    (when stream
-      (close stream)
-      (setf stream nil))))
+
+(defun sget (connection url)
+  (spotify-get-json connection url :keep-alive t))
+
+(defun sput (connection url)
+  (spotify-get-json connection url :keep-alive nil :type :put))
+
+(defun spost (connection url)
+  (spotify-get-json connection url :keep-alive nil :type :post))
 
 (defun spotify-get-json (connection url &key
                                           extra-headers
@@ -333,10 +357,15 @@ delay. You can choose to resend the request again."))
                                           (send-auth-header t)
                                           (skip-refresh nil)
                                           (skip-server-clean nil))
-  (when (not skip-refresh)
-    (refresh-connection connection))
-  (when (not skip-server-clean)
-    (check-cleanup connection))
+  (with-slots (auth-server stream) connection
+    (when (not skip-refresh)
+      (refresh-connection connection))
+    (when (and stream (not keep-alive))
+      (close stream)
+      (setf stream nil))
+    (when (and auth-server (not skip-server-clean))
+      (hunchentoot:stop auth-server)
+      (setf auth-server nil)))
 
   (loop
      for attempts below 3
@@ -345,28 +374,32 @@ delay. You can choose to resend the request again."))
          (handler-case
              (let ((headers (concatenate 'list
                                          (when send-auth-header (list auth-header))
-                                         (ensure-list extra-headers))))
+                                         (ensure-list extra-headers)))
+                   (content-string (if content
+                                       (format nil "~a" content)
+                                       "")))
                (when *debug-print-stream*
-                 (format *debug-print-stream* "Method: ~a~%URL: ~a~%Content: ~a~%Headers: ~a ~%~a~%and~%~a~%"
-                         type url content headers auth-header extra-headers))
+                 (format *debug-print-stream* "Method: ~a~%URL: ~a~%Content: ~a~%Headers: ~a~%~%"
+                         type url content headers))
                (multiple-value-bind (body resp-code headers url req-stream must-close response)
                    (drakma:http-request
                     url
                     :method type
                     :keep-alive keep-alive
-                    :close nil
+                    :close (not keep-alive)
                     :accept "application/json"
                     :additional-headers headers
                     :user-agent "cl-spotify"
                     :want-stream nil
-                    :content content
+                    :content-length (length content-string)
+                    :content content-string
                     :stream stream
                     :cookie-jar cookies)
                  (declare (ignorable body))
                  (when *debug-print-stream*
                    (format *debug-print-stream*
-                           "Headers:~%~a~%Response Code: ~a~%Response: ~a~%URL: ~a~%~%"
-                           headers resp-code response url))
+                           "Headers:~%~a~%Response Code: ~a~%Response: ~a~%URL: ~a~%Body ~a~%~%"
+                           headers resp-code response url body))
                  (unwind-protect
                       (cond ((= resp-code 200)
                              (setf stream req-stream)
@@ -375,6 +408,8 @@ delay. You can choose to resend the request again."))
                                      (flexi-streams:octets-to-string body :external-format :utf-8))))
                                (check-error json-response)
                                (return-from spotify-get-json json-response)))
+                            ((= resp-code 204)
+                             (return-from spotify-get-json t))
                             (t
                              (error 'http-error
                                     :code resp-code
@@ -382,12 +417,15 @@ delay. You can choose to resend the request again."))
                                     :url url
                                     :message (http-error-lookup resp-code))))
                    (when must-close
-                     (close req-stream)
+                     (when req-stream
+                       (close req-stream))
+                     (when stream
+                       (close stream))
                      (setf stream nil)))))
            (drakma:drakma-error (err)
              (declare (ignorable err))
              (when *debug-print-stream*
-               (format *debug-print-stream* "Keep alive expired!~%"))
+               (format *debug-print-stream* "~a Keep alive expired!~%" err))
              (reset-connection connection))))))
 
 (defun expired-p (connection)
@@ -438,7 +476,6 @@ delay. You can choose to resend the request again."))
             (format *debug-print-stream* "json-token: ~a~%" json-token)
             (format *debug-print-stream* "auth-token: ~a~%" auth-token))
           (save-auth-token auth-token)
-          ;; (setf auth-token json-token)
           (setf auth-header (create-auth-header json-token))))))
   connection)
 
@@ -456,18 +493,34 @@ delay. You can choose to resend the request again."))
     user-info))
 
 (defun get-playlists (connection)
-  (spotify-get-json
+  (sget
    connection
    (format nil "https://api.spotify.com/v1/users/~a/playlists" (user-id connection))))
 
+(defun now-playing (connection)
+  (sget
+   connection
+   "https://api.spotify.com/v1/me/player/currently-playing"))
 
-(defun go-backward (connection iterator)
+(defun play (connection)
+  (sput connection "https://api.spotify.com/v1/me/player/play"))
+
+(defun pause (connection)
+  (sput connection "https://api.spotify.com/v1/me/player/pause"))
+
+(defun next (connection)
+  (spost connection "https://api.spotify.com/v1/me/player/next"))
+
+(defun previous (connection)
+  (spost connection "https://api.spotify.com/v1/me/player/previous"))
+
+(defun iter-backward (connection iterator)
   (when-let (previous (getjso "previous" iterator))
-    (spotify-get-json connection previous)))
+    (sget connection previous)))
 
-(defun go-forward (connection iterator)
+(defun iter-forward (connection iterator)
   (when-let (forward (getjso "next" iterator))
-    (spotify-get-json connection forward)))
+    (sget connection forward)))
 
-(defun items (iterator)
+(defun iter-items (iterator)
   (getjso "items" iterator))

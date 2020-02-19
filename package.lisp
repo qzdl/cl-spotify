@@ -17,22 +17,37 @@
 
 (defpackage :cl-spotify
   (:use #:cl #:j-utils #:alexandria #:st-json #:local-time)
-  (:export #:connect
-           #:disconnect
-           #:spotify-connection
+  (:nicknames #:spotify #:cls)
+  (:export
 
-           #:get-user-info
-           #:spotify-get-json
-           #:get-with-token
-           #:user-id
-           #:user-info
-           #:get-playlists
-           #:go-forward
-           #:go-backward
-           #:items
+   ;; Connections
+   #:connect
+   #:disconnect
 
-           #:has-scope-p
-           #:add-scope
-           #:rm-scope
+   ;; Scope
+   #:has-scope-p
+   #:add-scope
+   #:rm-scope
 
-           ))
+   ;; High level API access
+   #:sget
+   #:spost
+   #:sput
+
+   ;; User information
+   #:now-playing
+   #:user-id
+   #:user-info
+   #:get-playlists
+
+   ;; Basic controls
+   #:play
+   #:pause
+   #:next
+   #:previous
+
+   ;; Iteration
+   #:iter-forward
+   #:iter-backward
+   #:items
+   ))
