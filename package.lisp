@@ -30,4 +30,9 @@
            #:go-forward
            #:go-backward
            #:items
+
+           #:has-scope-p
+           #:add-scope
+           #:rm-scope
+
            ))
