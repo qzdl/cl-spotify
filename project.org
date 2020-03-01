@@ -1,15 +1,596 @@
 * cl-spotify
 ** About
-This is a project to do something.
+This is a library for connecting to the Spotify Web API.
+
+It handles OAuth authentication/authorization (including automatic refresh),
+scope handling (right now only add-scope), JSON deserialization, and provides
+functions for making get, post, and put requests.
+
+It also includes some higher level functions (play, pause, etc.) to show how the library
+can be used.
+
+For more information, see project.org
+
 
 ** License
 ISC
 
-
 Copyright (c) 2020 Jeremiah LaRocco <jeremiah_larocco@fastmail.com>
 
 
+* Using
+** Get The Code
+This library is not in QuickLisp yet, and also depends on modifications I've made to
+st-json, and my own j-utils library.  To get started, clone the following repos into
+your Lisp local projects directory:
 
+#+BEGIN_SRC shell
+git clone https://github.com/jl2/cl-spotify
+git clone https://github.com/jl2/st-json
+git clone https://github.com/jl2/j-utils
+#+END_SRC
 
-* Plan
-** TODO Fill in a TODO list.
+The modifications I've made to st-json require jq to be installed (for pretty printing):
+
+#+BEGIN_SRC shell
+sudo apt-get install jq
+#+END_SRC
+
+** Attain a Client ID and secret
+Connecting to the Spotify API requires a Client ID and secret from Spotify, which you
+can get from Spotify's [[https://developer.spotify.com/dashboard/applications][Developer Dashboard]].
+
+cl-spotify reads the client ID and secret from a file.  The default location is
+(asdf:system-relative-pathname :cl-spotify ".spotify-client"), which is the file
+ ".spotify-client" in the cl-spotify package directory.  The file location can be
+changed by setting the special variable cl-spotify::*client-file*.
+
+The .spotify-client file should have the following format:
+
+#+BEGIN_SRC javascript
+{
+    "client_id": "your client ID",
+    "client_secret": "your client secret"
+}
+#+END_SRC
+
+** Connecting
+
+Once the client ID and secret are configured, it's time to connect:
+
+#+BEGIN_SRC lisp :results code raw
+(ql:quickload :cl-spotify)
+(defparameter *spotify* (cls:connect :scope '(:user-modify-playback-state :user-read-playback-state)))
+#+END_SRC
+
+This should bring up a web browser asking you to allow the cl-spotify to access your Spotify account.
+If you accept the request, you will be redirected to a page asking you to close the browser window,
+and cl-spotify will receive the authorization information in the background.
+
+After this, you can begin making requests to the Spotify API:
+
+#+BEGIN_SRC lisp :results code raw
+(ql:quickload :cl-spotify)
+(defparameter *spotify* (cls:connect :scope '(:user-modify-playback-state :user-read-playback-state)))
+(cls:pause *spotify*)
+(cls:play *spotify*)
+(cls:now-playing *spotify*)
+#+END_SRC
+
+#+RESULTS:
+{
+  "timestamp": 1583087441600,
+  "context": {
+    "external_urls": {
+      "spotify": "https://open.spotify.com/album/18MZ5hAndsTHS3V7MSDPtg"
+    },
+    "href": "https://api.spotify.com/v1/albums/18MZ5hAndsTHS3V7MSDPtg",
+    "type": "album",
+    "uri": "spotify:album:18MZ5hAndsTHS3V7MSDPtg"
+  },
+  "progress_ms": 0,
+  "item": {
+    "album": {
+      "album_type": "album",
+      "artists": [
+        {
+          "external_urls": {
+            "spotify": "https://open.spotify.com/artist/7y97mc3bZRFXzT2szRM4L4"
+          },
+          "href": "https://api.spotify.com/v1/artists/7y97mc3bZRFXzT2szRM4L4",
+          "id": "7y97mc3bZRFXzT2szRM4L4",
+          "name": "Frédéric Chopin",
+          "type": "artist",
+          "uri": "spotify:artist:7y97mc3bZRFXzT2szRM4L4"
+        },
+        {
+          "external_urls": {
+            "spotify": "https://open.spotify.com/artist/5N1GUHhFMRFFgMTjSOJDb9"
+          },
+          "href": "https://api.spotify.com/v1/artists/5N1GUHhFMRFFgMTjSOJDb9",
+          "id": "5N1GUHhFMRFFgMTjSOJDb9",
+          "name": "Arthur Rubinstein",
+          "type": "artist",
+          "uri": "spotify:artist:5N1GUHhFMRFFgMTjSOJDb9"
+        }
+      ],
+      "available_markets": [
+        "AD",
+        "AE",
+        "AR",
+        "AT",
+        "BE",
+        "BG",
+        "BH",
+        "BO",
+        "CA",
+        "CH",
+        "CL",
+        "CR",
+        "CY",
+        "CZ",
+        "DE",
+        "DK",
+        "DO",
+        "DZ",
+        "EE",
+        "EG",
+        "ES",
+        "FI",
+        "FR",
+        "GB",
+        "GR",
+        "GT",
+        "HK",
+        "HN",
+        "HU",
+        "IE",
+        "IL",
+        "IN",
+        "IS",
+        "IT",
+        "JO",
+        "JP",
+        "KW",
+        "LB",
+        "LI",
+        "LT",
+        "LU",
+        "LV",
+        "MA",
+        "MC",
+        "MT",
+        "MY",
+        "NI",
+        "NL",
+        "NO",
+        "OM",
+        "PA",
+        "PL",
+        "PS",
+        "PT",
+        "PY",
+        "QA",
+        "RO",
+        "SA",
+        "SE",
+        "SG",
+        "SK",
+        "SV",
+        "TH",
+        "TN",
+        "TR",
+        "TW",
+        "US",
+        "UY",
+        "VN",
+        "ZA"
+      ],
+      "external_urls": {
+        "spotify": "https://open.spotify.com/album/18MZ5hAndsTHS3V7MSDPtg"
+      },
+      "href": "https://api.spotify.com/v1/albums/18MZ5hAndsTHS3V7MSDPtg",
+      "id": "18MZ5hAndsTHS3V7MSDPtg",
+      "images": [
+        {
+          "height": 640,
+          "url": "https://i.scdn.co/image/ab67616d0000b27302ec01d25fdbf1b6b48817a7",
+          "width": 640
+        },
+        {
+          "height": 300,
+          "url": "https://i.scdn.co/image/ab67616d00001e0202ec01d25fdbf1b6b48817a7",
+          "width": 300
+        },
+        {
+          "height": 64,
+          "url": "https://i.scdn.co/image/ab67616d0000485102ec01d25fdbf1b6b48817a7",
+          "width": 64
+        }
+      ],
+      "name": "Rubinstein Collection, Vol. 50: Chopin: 51 Mazurkas",
+      "release_date": "1999-12-31",
+      "release_date_precision": "day",
+      "total_tracks": 51,
+      "type": "album",
+      "uri": "spotify:album:18MZ5hAndsTHS3V7MSDPtg"
+    },
+    "artists": [
+      {
+        "external_urls": {
+          "spotify": "https://open.spotify.com/artist/7y97mc3bZRFXzT2szRM4L4"
+        },
+        "href": "https://api.spotify.com/v1/artists/7y97mc3bZRFXzT2szRM4L4",
+        "id": "7y97mc3bZRFXzT2szRM4L4",
+        "name": "Frédéric Chopin",
+        "type": "artist",
+        "uri": "spotify:artist:7y97mc3bZRFXzT2szRM4L4"
+      },
+      {
+        "external_urls": {
+          "spotify": "https://open.spotify.com/artist/5N1GUHhFMRFFgMTjSOJDb9"
+        },
+        "href": "https://api.spotify.com/v1/artists/5N1GUHhFMRFFgMTjSOJDb9",
+        "id": "5N1GUHhFMRFFgMTjSOJDb9",
+        "name": "Arthur Rubinstein",
+        "type": "artist",
+        "uri": "spotify:artist:5N1GUHhFMRFFgMTjSOJDb9"
+      }
+    ],
+    "available_markets": [
+      "AD",
+      "AE",
+      "AR",
+      "AT",
+      "BE",
+      "BG",
+      "BH",
+      "BO",
+      "CA",
+      "CH",
+      "CL",
+      "CR",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "DO",
+      "DZ",
+      "EE",
+      "EG",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "GT",
+      "HK",
+      "HN",
+      "HU",
+      "IE",
+      "IL",
+      "IN",
+      "IS",
+      "IT",
+      "JO",
+      "JP",
+      "KW",
+      "LB",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MA",
+      "MC",
+      "MT",
+      "MY",
+      "NI",
+      "NL",
+      "NO",
+      "OM",
+      "PA",
+      "PL",
+      "PS",
+      "PT",
+      "PY",
+      "QA",
+      "RO",
+      "SA",
+      "SE",
+      "SG",
+      "SK",
+      "SV",
+      "TH",
+      "TN",
+      "TR",
+      "TW",
+      "US",
+      "UY",
+      "VN",
+      "ZA"
+    ],
+    "disc_number": 1,
+    "duration_ms": 222173,
+    "explicit": false,
+    "external_ids": {
+      "isrc": "USBC19803021"
+    },
+    "external_urls": {
+      "spotify": "https://open.spotify.com/track/6FeJ0WtNPkjS59vyXX6xJm"
+    },
+    "href": "https://api.spotify.com/v1/tracks/6FeJ0WtNPkjS59vyXX6xJm",
+    "id": "6FeJ0WtNPkjS59vyXX6xJm",
+    "is_local": false,
+    "name": "Mazurkas, Op. 30: No. 4 in C-Sharp Minor",
+    "popularity": 3,
+    "preview_url": "https://p.scdn.co/mp3-preview/908e407a1734e9d395ba387d254380665f6ba617?cid=911d56f9a73b43f4932389c2421be35e",
+    "track_number": 21,
+    "type": "track",
+    "uri": "spotify:track:6FeJ0WtNPkjS59vyXX6xJm"
+  },
+  "currently_playing_type": "track",
+  "actions": {
+    "disallows": {
+      "pausing": true
+    }
+  },
+  "is_playing": false
+}
+{
+  "timestamp": 1583086965549,
+  "context": {
+    "external_urls": {
+      "spotify": "https://open.spotify.com/album/18MZ5hAndsTHS3V7MSDPtg"
+    },
+    "href": "https://api.spotify.com/v1/albums/18MZ5hAndsTHS3V7MSDPtg",
+    "type": "album",
+    "uri": "spotify:album:18MZ5hAndsTHS3V7MSDPtg"
+  },
+  "progress_ms": 148347,
+  "item": {
+    "album": {
+      "album_type": "album",
+      "artists": [
+        {
+          "external_urls": {
+            "spotify": "https://open.spotify.com/artist/7y97mc3bZRFXzT2szRM4L4"
+          },
+          "href": "https://api.spotify.com/v1/artists/7y97mc3bZRFXzT2szRM4L4",
+          "id": "7y97mc3bZRFXzT2szRM4L4",
+          "name": "Frédéric Chopin",
+          "type": "artist",
+          "uri": "spotify:artist:7y97mc3bZRFXzT2szRM4L4"
+        },
+        {
+          "external_urls": {
+            "spotify": "https://open.spotify.com/artist/5N1GUHhFMRFFgMTjSOJDb9"
+          },
+          "href": "https://api.spotify.com/v1/artists/5N1GUHhFMRFFgMTjSOJDb9",
+          "id": "5N1GUHhFMRFFgMTjSOJDb9",
+          "name": "Arthur Rubinstein",
+          "type": "artist",
+          "uri": "spotify:artist:5N1GUHhFMRFFgMTjSOJDb9"
+        }
+      ],
+      "available_markets": [
+        "AD",
+        "AE",
+        "AR",
+        "AT",
+        "BE",
+        "BG",
+        "BH",
+        "BO",
+        "CA",
+        "CH",
+        "CL",
+        "CR",
+        "CY",
+        "CZ",
+        "DE",
+        "DK",
+        "DO",
+        "DZ",
+        "EE",
+        "EG",
+        "ES",
+        "FI",
+        "FR",
+        "GB",
+        "GR",
+        "GT",
+        "HK",
+        "HN",
+        "HU",
+        "IE",
+        "IL",
+        "IN",
+        "IS",
+        "IT",
+        "JO",
+        "JP",
+        "KW",
+        "LB",
+        "LI",
+        "LT",
+        "LU",
+        "LV",
+        "MA",
+        "MC",
+        "MT",
+        "MY",
+        "NI",
+        "NL",
+        "NO",
+        "OM",
+        "PA",
+        "PL",
+        "PS",
+        "PT",
+        "PY",
+        "QA",
+        "RO",
+        "SA",
+        "SE",
+        "SG",
+        "SK",
+        "SV",
+        "TH",
+        "TN",
+        "TR",
+        "TW",
+        "US",
+        "UY",
+        "VN",
+        "ZA"
+      ],
+      "external_urls": {
+        "spotify": "https://open.spotify.com/album/18MZ5hAndsTHS3V7MSDPtg"
+      },
+      "href": "https://api.spotify.com/v1/albums/18MZ5hAndsTHS3V7MSDPtg",
+      "id": "18MZ5hAndsTHS3V7MSDPtg",
+      "images": [
+        {
+          "height": 640,
+          "url": "https://i.scdn.co/image/ab67616d0000b27302ec01d25fdbf1b6b48817a7",
+          "width": 640
+        },
+        {
+          "height": 300,
+          "url": "https://i.scdn.co/image/ab67616d00001e0202ec01d25fdbf1b6b48817a7",
+          "width": 300
+        },
+        {
+          "height": 64,
+          "url": "https://i.scdn.co/image/ab67616d0000485102ec01d25fdbf1b6b48817a7",
+          "width": 64
+        }
+      ],
+      "name": "Rubinstein Collection, Vol. 50: Chopin: 51 Mazurkas",
+      "release_date": "1999-12-31",
+      "release_date_precision": "day",
+      "total_tracks": 51,
+      "type": "album",
+      "uri": "spotify:album:18MZ5hAndsTHS3V7MSDPtg"
+    },
+    "artists": [
+      {
+        "external_urls": {
+          "spotify": "https://open.spotify.com/artist/7y97mc3bZRFXzT2szRM4L4"
+        },
+        "href": "https://api.spotify.com/v1/artists/7y97mc3bZRFXzT2szRM4L4",
+        "id": "7y97mc3bZRFXzT2szRM4L4",
+        "name": "Frédéric Chopin",
+        "type": "artist",
+        "uri": "spotify:artist:7y97mc3bZRFXzT2szRM4L4"
+      },
+      {
+        "external_urls": {
+          "spotify": "https://open.spotify.com/artist/5N1GUHhFMRFFgMTjSOJDb9"
+        },
+        "href": "https://api.spotify.com/v1/artists/5N1GUHhFMRFFgMTjSOJDb9",
+        "id": "5N1GUHhFMRFFgMTjSOJDb9",
+        "name": "Arthur Rubinstein",
+        "type": "artist",
+        "uri": "spotify:artist:5N1GUHhFMRFFgMTjSOJDb9"
+      }
+    ],
+    "available_markets": [
+      "AD",
+      "AE",
+      "AR",
+      "AT",
+      "BE",
+      "BG",
+      "BH",
+      "BO",
+      "CA",
+      "CH",
+      "CL",
+      "CR",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "DO",
+      "DZ",
+      "EE",
+      "EG",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "GT",
+      "HK",
+      "HN",
+      "HU",
+      "IE",
+      "IL",
+      "IN",
+      "IS",
+      "IT",
+      "JO",
+      "JP",
+      "KW",
+      "LB",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MA",
+      "MC",
+      "MT",
+      "MY",
+      "NI",
+      "NL",
+      "NO",
+      "OM",
+      "PA",
+      "PL",
+      "PS",
+      "PT",
+      "PY",
+      "QA",
+      "RO",
+      "SA",
+      "SE",
+      "SG",
+      "SK",
+      "SV",
+      "TH",
+      "TN",
+      "TR",
+      "TW",
+      "US",
+      "UY",
+      "VN",
+      "ZA"
+    ],
+    "disc_number": 1,
+    "duration_ms": 172173,
+    "explicit": false,
+    "external_ids": {
+      "isrc": "USBC19803020"
+    },
+    "external_urls": {
+      "spotify": "https://open.spotify.com/track/02OIvH2gOAh4MVDzrjgjlP"
+    },
+    "href": "https://api.spotify.com/v1/tracks/02OIvH2gOAh4MVDzrjgjlP",
+    "id": "02OIvH2gOAh4MVDzrjgjlP",
+    "is_local": false,
+    "name": "Mazurkas, Op. 30: No. 3 in D-Flat Major",
+    "popularity": 2,
+    "preview_url": "https://p.scdn.co/mp3-preview/1290e22651d63c3b45f20eda8281aaed37a771ae?cid=911d56f9a73b43f4932389c2421be35e",
+    "track_number": 20,
+    "type": "track",
+    "uri": "spotify:track:02OIvH2gOAh4MVDzrjgjlP"
+  },
+  "currently_playing_type": "track",
+  "actions": {
+    "disallows": {
+      "pausing": true
+    }
+  },
+  "is_playing": false
+}
