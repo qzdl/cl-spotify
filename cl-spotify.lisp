@@ -341,7 +341,7 @@ delay. You can choose to resend the request again."))
 
 
 (defun sget (connection url)
-  (spotify-get-json connection url :keep-alive t))
+  (spotify-get-json connection url :keep-alive t :type :get))
 
 (defun sput (connection url)
   (spotify-get-json connection url :keep-alive nil :type :put))
@@ -458,6 +458,7 @@ delay. You can choose to resend the request again."))
                             :type :post
                             :content req-data
                             :skip-refresh t
+                            :keep-alive nil
                             :send-auth-header t)))
           (when-let (jtoken (getjso "refresh_token" json-token))
             (setf (getjso "refresh_token" auth-token) jtoken))
