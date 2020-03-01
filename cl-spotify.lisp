@@ -459,7 +459,8 @@ delay. You can choose to resend the request again."))
                             :content req-data
                             :skip-refresh t
                             :keep-alive nil
-                            :send-auth-header t)))
+                            :extra-headers (list (auth-request-header))
+                            :send-auth-header nil)))
           (when-let (jtoken (getjso "refresh_token" json-token))
             (setf (getjso "refresh_token" auth-token) jtoken))
 
