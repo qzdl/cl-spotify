@@ -49,5 +49,5 @@
    ;; Iteration
    #:iter-forward
    #:iter-backward
-   #:items
+   #:iter-items
    ))
