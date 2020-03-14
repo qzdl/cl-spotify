@@ -28,7 +28,6 @@
   :serial t
   :depends-on ( :cl-spotify
                   :fiveam)
-  
   :components ((:module "t"
                         :components 
                         ((:file "package"))))

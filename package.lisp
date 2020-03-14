@@ -1,4 +1,4 @@
-;;;; package.lisp 
+;;;; package.lisp
 ;;
 ;; Copyright (c) 2020 Jeremiah LaRocco <jeremiah_larocco@fastmail.com>
 
@@ -21,6 +21,8 @@
   (:export
 
    ;; Connections
+   #:global-connect
+   #:global-disconnect
    #:connect
    #:disconnect
 
@@ -35,10 +37,12 @@
    #:sput
 
    ;; User information
-   #:now-playing
    #:user-id
    #:user-info
+
+   ;; Basic queries
    #:get-playlists
+   #:now-playing
 
    ;; Basic controls
    #:play
@@ -50,4 +54,6 @@
    #:iter-forward
    #:iter-backward
    #:iter-items
+
+   #:collect-fields
    ))
