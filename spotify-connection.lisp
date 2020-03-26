@@ -33,6 +33,29 @@
                             :cl-spotify "html/close.html")
   "Path to the HTML file that the user is redirected to after authenticating.")
 
+(defparameter *all-scopes*
+  '(
+    :ugc-image-upload
+    :user-read-playback-state
+    :user-modify-playback-state
+    :user-read-currently-playing
+    :streaming
+    :app-remote-control
+    :user-read-email
+    :user-read-private
+    :playlist-read-collaborative
+    :playlist-modify-public
+    :playlist-read-private
+    :playlist-modify-private
+    :user-library-modify
+    :user-library-read
+    :user-top-read
+    :user-read-recently-played
+    :user-follow-read
+    :user-follow-modify
+    )
+  "A list of all available scopes.")
+
 (defparameter *initializing-connection* nil
   "The spotify-connection that initiated authorization.  This object will be updated after \
 access is granted and Spotify redirects the user to our local server.")
@@ -81,10 +104,8 @@ access is granted and Spotify redirects the user to our local server.")
          (getjso "access_token" auth-token))))
 
 (defun get-auth-url (connection)
-  ;; Headers required to initiate authorization.
-  ;; See this page:
-  ;; https://developer.spotify.com/documentation/general/guides/authorization-guide/
-  ;; for more information
+  "Return the headers required to initiate authorization.  For more information: \
+https://developer.spotify.com/documentation/general/guides/authorization-guide/"
   (let ((header-list (list (cons "response_type" "code")
                            (cons "client_id" (get-client-id))
                            (cons "scope" (scope-as-string connection))
@@ -99,6 +120,8 @@ access is granted and Spotify redirects the user to our local server.")
   (string-downcase (format nil "~{~a~^,~}" (scope connection))))
 
 (defun init-new-connection (scope port)
+  "Initialize a new connection and start the background server to listen \
+for Spotify's redirect."
   (let* ((connection (make-instance 'spotify-connection
                                     :scope (ensure-list scope)
                                     :listen-port port
@@ -155,7 +178,7 @@ access is granted and Spotify redirects the user to our local server.")
     (when stream
       (close  stream))))
 
-(defun global-connect (&key (scope nil) (port 4040) (use-cached-auth t))
+(defun global-connect (&key (scope *all-scopes*) (port 4040) (use-cached-auth t))
   "Create the default Spotify connection."
   (setf *global-connection* (connect :scope scope :port port :use-cached-auth use-cached-auth)))
 
@@ -196,7 +219,7 @@ access is granted and Spotify redirects the user to our local server.")
      (format stream
              "HTTP Error~%~a~%~a~%~a~%~a~%"
              code headers url message))))
-  (:documentation "An HTTP error."))
+  (:documentation "An HTTP error from Spotify."))
 
 
 (defun save-auth-token (json-token)
@@ -230,7 +253,8 @@ access is granted and Spotify redirects the user to our local server.")
 
 (hunchentoot:define-easy-handler (authorize :uri "/") (code state)
   "Spotify redirects the user here when authorization is granted.  This handler \
-finishes initialization of *initializing-connection*."
+finishes the initialization of *initializing-connection* by filling in the \
+authentication information and saving the auth token."
 
   (with-slots (redirect-url auth-state auth-token auth-header) *initializing-connection*
 
@@ -254,53 +278,40 @@ finishes initialization of *initializing-connection*."
     ;; Return HTML telling the user they are authorized and can close the browser window.
     (setf (hunchentoot:content-type*) "text/html")
     (alexandria:read-file-into-string *close-html*)))
+
 (defun http-error-lookup (code)
+  "Map error codes to Spotify error messages."
   (assoc-value
-   '((200 . "The request has succeeded. The client can read the result of \
-the request in the body and the headers of the response.")
-
-    (201 . "Created - The request has been fulfilled and resulted in a \
-new resource being created.")
-
-    (202 . "Accepted - The request has been accepted for processing, but \
-the processing has not been completed.")
-
-    (204 . "No Content - The request has succeeded but returns no message \
-body.")
-
-    (304 . "Not Modified. See Conditional requests.")
-
-    (400 . "Bad Request - The request could not be understood by the server \
-due to malformed syntax. The message body will contain more information;
+   '(
+     (400 . "Bad Request - The request could not be understood by the server \
+due to malformed syntax. The message body will contain more information; \
 see Response Schema.")
 
-    (401 . "Unauthorized - The request requires user authentication or, if \
+     (401 . "Unauthorized - The request requires user authentication or, if \
 the request included authorization credentials, authorization has been \
 refused for those credentials.")
 
-    (403 . "Forbidden - The server understood the request, but is refusing \
+     (403 . "Forbidden - The server understood the request, but is refusing \
 to fulfill it.")
 
-    (404 . "Not Found - The requested resource could not be found. This error \
+     (404 . "Not Found - The requested resource could not be found. This error \
 can be due to a temporary or permanent condition.")
 
-    (429 . "Too Many Requests - Rate limiting has been applied.")
+     (429 . "Too Many Requests - Rate limiting has been applied.")
 
-    (500 . "Internal Server Error. You should never receive this error \
-because our clever coders catch them all … but if you are unlucky enough \
-to get one, please report it to us through a comment at the bottom of this \
-page.")
+     (500 . "Internal Server Error.")
 
-    (502 . "Bad Gateway - The server was acting as a gateway or proxy and \
+     (502 . "Bad Gateway - The server was acting as a gateway or proxy and \
 received an invalid response from the upstream server.")
 
-    (503 . "Service Unavailable - The server is currently unable to handle \
+     (503 . "Service Unavailable - The server is currently unable to handle \
 the request due to a temporary condition which will be alleviated after some \
 delay. You can choose to resend the request again."))
 
    code))
 
 (defun check-error (json-response)
+  "Raise an error for Spotify 'status' and 'error' JSON responses."
   (cond
     ((getjso "status" json-response)
      (error 'regular-error
@@ -314,12 +325,17 @@ delay. You can choose to resend the request again."))
      json-response)))
 
 (defun sget (url &optional (connection *global-connection*))
+  "Authenticated GET request for url."
   (spotify-get-json connection url :keep-alive t :type :get))
 
+;; TODO: Add content parameter
 (defun sput (url &optional (connection *global-connection*))
+  "Authenticated PUT request for url."
   (spotify-get-json connection url :keep-alive nil :type :put))
 
+;; TODO: Add content parameter
 (defun spost (url &optional (connection *global-connection*))
+  "This function is stupid right now.  It needs content to post..."
   (spotify-get-json connection url :keep-alive nil :type :post))
 
 (defun spotify-get-json (connection url &key
@@ -330,19 +346,39 @@ delay. You can choose to resend the request again."))
                                           (send-auth-header t)
                                           (skip-refresh nil)
                                           (skip-server-clean nil))
+  "Very ugly function that handles all of the HTTP requests to Spotify \
+services, including authentication, refreshing authentication, cookies, keepalive, \
+JSON parsing, etc."
+
+  ;; Refresh connection and clean up before making request
   (with-slots (auth-server stream) connection
+
+    ;; Check if authentication needs to be refreshed, unless the check
+    ;; is being skipped (probably because refresh is in progress and
+    ;; this request is requesting a refresh token)
+
+    ;; This is a race condition (the connection can expire between refresh-connection
+    ;; and the HTTP request), but it isn't really necessary (the API will throw a 401,
+    ;; the connection will be refreshed, and the request will be retried) but it saves
+    ;; an HTTP request if the auth token has already expired.
     (when (not skip-refresh)
       (refresh-connection connection))
+
+    ;; If there's a stream, but keep-alive is disabled then the stream
+    ;; needs to be closed to free up resources.
     (when (and stream (not keep-alive))
       (close stream)
       (setf stream nil))
+
+    ;; Shutdown the redirect listener server if it's still running, unless
+    ;; the check is being skipped (probably because this request is coming
+    ;; from the listener, for the auth token.)
     (when (and auth-server (not skip-server-clean))
       (hunchentoot:stop auth-server)
       (setf auth-server nil)))
 
-  (loop
-     for attempts below 3
-     do
+  ;; Try multiple times to handle authentication refresh and keep alive timeouts
+  (loop for attempts upto 3 do
        (with-slots (auth-header stream cookies retries) connection
          (handler-case
              (let ((headers (concatenate 'list
@@ -355,6 +391,7 @@ delay. You can choose to resend the request again."))
                  (format *debug-print-stream* "Method: ~a~%URL: ~a~%Content: ~a~%Headers: ~a~%~%"
                          type url content headers))
                (multiple-value-bind (body resp-code headers url req-stream must-close response)
+                   ;; ugh
                    (drakma:http-request
                     url
                     :method type
@@ -374,21 +411,34 @@ delay. You can choose to resend the request again."))
                            "Headers:~%~a~%Response Code: ~a~%Response: ~a~%URL: ~a~%Body ~a~%~%"
                            headers resp-code response url body))
                  (unwind-protect
-                      (cond ((= resp-code 200)
-                             (setf stream req-stream)
-                             (let ((json-response
-                                    (read-json-from-string
-                                     (flexi-streams:octets-to-string body :external-format :utf-8))))
-                               (check-error json-response)
-                               (return-from spotify-get-json json-response)))
-                            ((= resp-code 204)
-                             (return-from spotify-get-json t))
-                            (t
-                             (error 'http-error
-                                    :code resp-code
-                                    :headers headers
-                                    :url url
-                                    :message (http-error-lookup resp-code))))
+                      (cond
+                        ;; 200 -> Return JSON results
+                        ((= resp-code 200)
+                         (setf stream req-stream)
+                         (let ((json-response
+                                (read-json-from-string
+                                 (flexi-streams:octets-to-string body :external-format :utf-8))))
+                           (check-error json-response)
+                           (return-from spotify-get-json json-response)))
+
+                        ;; No results to read, but not an error, so return the response code
+                        ((or (= resp-code 201)
+                             (= resp-code 202)
+                             (= resp-code 204)
+                             (= resp-code 304))
+                         (return-from spotify-get-json resp-code))
+
+                        ((and (= resp-code 401) (< attempts 2))
+                         ;; Authentication error, try to refresh and try again
+                         (refresh-connection connection))
+
+                        ;; Everything else is an error
+                        (t
+                         (error 'http-error
+                                :code resp-code
+                                :headers headers
+                                :url url
+                                :message (http-error-lookup resp-code))))
                    (when must-close
                      (when req-stream
                        (close req-stream))
@@ -402,21 +452,26 @@ delay. You can choose to resend the request again."))
              (reset-connection connection))))))
 
 (defun expired-p (connection)
+  "Check if the connection has expired."
   (with-slots (auth-token) connection
     (let ((exp-time (parse-timestring (getjso "expire_time" auth-token))))
       (timestamp< exp-time (local-time:now)))))
 
 (defun reset-connection (connection)
+  "Close any open streams this connection has open."
   (with-slots (stream) connection
     (when stream
       (close stream)
       (setf stream nil))))
 
 (defun refresh-connection (connection)
+  "Request a refreshed authentication token and save it to disk."
   (with-slots (auth-token auth-header) connection
+
     (let ((exp-time (parse-timestring (getjso "expire_time" auth-token)))
           (ref-token (getjso "refresh_token" auth-token)))
 
+      ;; Only refresh if the current auth is expired.
       (when (timestamp< exp-time (local-time:now))
         (reset-connection connection)
         (let* ((req-data (drakma::alist-to-url-encoded-string
