@@ -60,6 +60,9 @@
   "The spotify-connection that initiated authorization.  This object will be updated after \
 access is granted and Spotify redirects the user to our local server.")
 
+(defparameter *spotifyd* nil
+  "The shared spotifyd process.")
+
 (defun auth-request-header ()
   "Read client ID and secret from .spotify-client and return an authorization header."
   (with-input-from-file (ins *client-file*)
@@ -122,6 +125,7 @@ https://developer.spotify.com/documentation/general/guides/authorization-guide/"
 (defun init-new-connection (scope port)
   "Initialize a new connection and start the background server to listen \
 for Spotify's redirect."
+
   (let* ((connection (make-instance 'spotify-connection
                                     :scope (ensure-list scope)
                                     :listen-port port
@@ -178,12 +182,31 @@ for Spotify's redirect."
     (when stream
       (close  stream))))
 
-(defun global-connect (&key (scope *all-scopes*) (port 4040) (use-cached-auth t))
+
+(defun start-spotifyd ()
+  (when (or (null *spotifyd*)
+            (not (uiop:process-alive-p *spotifyd*)))
+    (setf *spotifyd* (uiop:launch-program "spotifyd --no-daemon"))))
+
+(defun stop-spotifyd ()
+  (when (and *spotifyd* (uiop:process-alive-p *spotifyd*))
+    (uiop:terminate-process *spotifyd*)
+    (uiop:wait-process *spotifyd*)
+    (setf *spotifyd* nil)))
+
+(defun global-connect (&key
+                         (scope *all-scopes*)
+                         (port 4040)
+                         (use-cached-auth t)
+                         (start-spotifyd nil))
   "Create the default Spotify connection."
+  (when start-spotifyd
+    (start-spotifyd))
   (setf *global-connection* (connect :scope scope :port port :use-cached-auth use-cached-auth)))
 
 (defun global-disconnect ()
   "Disconnect the default Spotify connection."
+  (stop-spotifyd)
   (disconnect *global-connection*))
 
 (define-condition authorization-error (error)

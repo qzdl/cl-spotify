@@ -1,4 +1,4 @@
-;;;; cl-spotify.asd
+;;;; cl-spotify.lisp
 ;;
 ;; Copyright (c) 2020 Jeremiah LaRocco <jeremiah_larocco@fastmail.com>
 
@@ -15,17 +15,4 @@
 ;; ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 ;; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-(asdf:defsystem #:cl-spotify
-  :description "Describe cl-spotify here"
-  :author "Jeremiah LaRocco <jeremiah_larocco@fastmail.com>"
-  :license  "ISC"
-  :version "0.0.1"
-  :serial t
-  :depends-on (#:drakma #:st-json #:j-utils #:alexandria #:hunchentoot #:swank #:cl-base64)
-  :components ((:file "package")
-               (:file "common")
-               (:file "spotify-connection")
-               (:file "cl-spotify")
-               (:file "objects")
-               )
-  :in-order-to ((test-op (test-op cl-spotify.test))))
+(in-package :cl-spotify)
