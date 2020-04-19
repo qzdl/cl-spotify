@@ -102,6 +102,10 @@ https://developer.spotify.com/documentation/web-api/reference/player/get-the-use
    connection))
 
 
+(defun devices (&key (connection *global-connection*))
+  (sget "https://api.spotify.com/v1/me/player/devices" connection))
+
+
 
 ;; Basic player controls
 (defun play (&key (connection *global-connection*))

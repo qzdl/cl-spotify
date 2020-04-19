@@ -145,8 +145,8 @@ for Spotify's redirect."
 
     ;; Open the URL authorization URL in the user's browser.
     ;; TODO: Don't use Swank...
-    (swank:eval-in-emacs '(require 'eww))
-    (swank:eval-in-emacs (list 'eww-browse-with-external-browser (get-auth-url connection)))
+    (uiop:run-program (format nil "xdg-open \"~a\"" (get-auth-url connection)))
+    ;; (slynk:eval-in-emacs (list 'eww-browse-with-external-browser (get-auth-url connection)))
 
     ;; Return the new connection
     connection))
@@ -349,7 +349,7 @@ delay. You can choose to resend the request again."))
 
 (defun sget (url &optional (connection *global-connection*))
   "Authenticated GET request for url."
-  (spotify-get-json connection url :keep-alive t :type :get))
+  (to-object (spotify-get-json connection url :keep-alive t :type :get)))
 
 ;; TODO: Add content parameter
 (defun sput (url &optional (connection *global-connection*))

@@ -21,7 +21,7 @@
   :license  "ISC"
   :version "0.0.1"
   :serial t
-  :depends-on (#:drakma #:st-json #:j-utils #:alexandria #:hunchentoot #:swank #:cl-base64)
+  :depends-on (#:drakma #:st-json #:j-utils #:alexandria #:hunchentoot #:slynk #:cl-base64)
   :components ((:file "package")
                (:file "common")
                (:file "spotify-connection")

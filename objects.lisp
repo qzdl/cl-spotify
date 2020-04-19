@@ -16,3 +16,31 @@
 ;; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 (in-package :cl-spotify)
+
+(defclass spotify-object ()
+  ((json :initarg :json :type st-json:jso))
+  (:documentation "A Spotify object."))
+
+(defclass spotify-track (spotify-object)
+  ()
+  (:documentation "A spotify track object."))
+
+(defclass spotify-artist (spotify-object)
+  ()
+  (:documentation "A spotify artist object."))
+
+(defun to-object (json)
+  (if-let (obj-type (getjso "type" json))
+    (let ((object-type (intern (concatenate 'string "SPOTIFY-" (string-upcase obj-type))
+                               'cl-spotify)))
+      (handler-case
+          (when (find-class object-type)
+            (make-instance object-type :json json))
+        (sb-pcl:class-not-found-error (err)
+          (declare (ignorable err))
+          (format t "object type ~a not implemented!~%" object-type)
+          (make-instance 'spotify-object :json json))))
+    (make-instance 'spotify-object :json json)))
+
+(defmethod print-object ((object spotify-object) stream)
+  (format stream "~a~%~a~%" (type-of object) (slot-value object 'json)))

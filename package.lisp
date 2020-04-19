@@ -56,4 +56,6 @@
    #:iter-items
 
    #:collect-fields
+
+   #:devices
    ))
