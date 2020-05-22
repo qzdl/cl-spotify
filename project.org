@@ -20,11 +20,12 @@ Copyright (c) 2020 Jeremiah LaRocco <jeremiah_larocco@fastmail.com>
 
 * Using
 ** Get The Code
-This library is not in QuickLisp yet, and also depends on modifications I've made to
-st-json, and my own j-utils library.  To get started, clone the following repos into
-your Lisp local projects directory:
+This library is not in QuickLisp yet, and also depends on modifications I've
+made to st-json ([[https://github.com/marijnh/ST-JSON][original]], [[ https://github.com/jl2/st-json][fork]]), and my own [[https://github.com/jl2/j-utils][j-utils]] library. To get started,
+clone the following repos into your Lisp ~local-projects~ directory:
 
 #+BEGIN_SRC shell
+cd ~/quicklisp/local-projects/
 git clone https://github.com/jl2/cl-spotify
 git clone https://github.com/jl2/st-json
 git clone https://github.com/jl2/j-utils
@@ -36,18 +37,18 @@ The modifications I've made to st-json require jq to be installed (for pretty pr
 sudo apt-get install jq
 #+END_SRC
 
-** Attain a Client ID and secret
-Connecting to the Spotify API requires a Client ID and secret from Spotify, which you
-can get from Spotify's [[https://developer.spotify.com/dashboard/applications][Developer Dashboard]].
+** Obtain a Client ID and secret
+Connecting to the Spotify API requires a Client ID and Client Secret from
+Spotify, which you can get from Spotify's [[https://developer.spotify.com/dashboard/applications][Developer Dashboard]].
 
-cl-spotify reads the client ID and secret from a file.  The default location is
-(asdf:system-relative-pathname :cl-spotify ".spotify-client"), which is the file
- ".spotify-client" in the cl-spotify package directory.  The file location can be
-changed by setting the special variable cl-spotify::*client-file*.
+~cl-spotify~ reads the client ID and secret from a file. The default location is
+~(asdf:system-relative-pathname :cl-spotify ".spotify-client")~, which is the
+file ~.spotify-client~ in the cl-spotify package directory. The file location
+can be changed by setting the special variable ~cl-spotify::*client-file*~.
 
-The .spotify-client file should have the following format:
+The ~.spotify-client~ file must be json with the following structure:
 
-#+BEGIN_SRC javascript
+#+BEGIN_SRC javascript :eval no
 {
     "client_id": "your client ID",
     "client_secret": "your client secret"
@@ -59,13 +60,15 @@ The .spotify-client file should have the following format:
 Once the client ID and secret are configured, it's time to connect:
 
 #+BEGIN_SRC lisp :results code raw
+(ql:register-local-projects)
 (ql:quickload :cl-spotify)
 (defparameter *spotify* (cls:connect :scope '(:user-modify-playback-state :user-read-playback-state)))
 #+END_SRC
 
-This should bring up a web browser asking you to allow the cl-spotify to access your Spotify account.
-If you accept the request, you will be redirected to a page asking you to close the browser window,
-and cl-spotify will receive the authorization information in the background.
+This should bring up a web browser asking you to allow the cl-spotify to access
+your Spotify account. If you accept the request, you will be redirected to a
+page asking you to close the browser window, and cl-spotify will receive the
+authorization information in the background.
 
 After this, you can begin making requests to the Spotify API:
 
